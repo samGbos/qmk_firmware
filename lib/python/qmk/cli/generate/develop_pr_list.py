@@ -12,6 +12,15 @@ fix_expr = re.compile(r'fix', flags=re.IGNORECASE)
 clean1_expr = re.compile(r'\[(develop|keyboard|keymap|core|cli|bug|docs|feature)\]', flags=re.IGNORECASE)
 clean2_expr = re.compile(r'^(develop|keyboard|keymap|core|cli|bug|docs|feature):', flags=re.IGNORECASE)
 
+ignored_titles = ["Format code according to conventions"]
+
+
+def _is_ignored(title):
+    for ignore in ignored_titles:
+        if ignore in title:
+            return True
+    return False
+
 
 def _get_pr_info(cache, gh, pr_num):
     pull = cache.get(f'pull:{pr_num}')
@@ -30,7 +39,12 @@ def _try_open_cache(cli):
         return None
 
     cache_loc = Path(cli.config_file).parent
-    return SqliteCache(cache_loc)
+    cache = SqliteCache(cache_loc)
+
+    if cli.args.clean:
+        cache.clear()
+
+    return cache
 
 
 def _get_github():
@@ -39,9 +53,11 @@ def _get_github():
     except ImportError:
         return None
 
-    return GhApi()
+    # ghapi v2 (July 2026) is now async by default - luckily v1 happily ignores the sync argument
+    return GhApi(sync=True)
 
 
+@cli.argument('-c', '--clean', arg_only=True, action='store_true', help="Remove cache before list generation.")
 @cli.argument('-f', '--from-ref', default='0.11.0', help='Git revision/tag/reference/branch to begin search')
 @cli.argument('-b', '--branch', default='upstream/develop', help='Git branch to iterate (default: "upstream/develop")')
 @cli.subcommand('Creates the develop PR list.', hidden=False if cli.config.user.developer else True)
@@ -81,7 +97,9 @@ def generate_develop_pr_list(cli):
             else:
                 normal_collection.append(info)
 
-        if "dependencies" in commit_info['pr_labels']:
+        if _is_ignored(commit_info['title']):
+            return
+        elif "dependencies" in commit_info['pr_labels']:
             fix_or_normal(commit_info, pr_list_bugs, pr_list_dependencies)
         elif "core" in commit_info['pr_labels']:
             fix_or_normal(commit_info, pr_list_bugs, pr_list_core)
@@ -97,7 +115,7 @@ def generate_develop_pr_list(cli):
         match = git_expr.search(line)
         if match:
             pr_info = _get_pr_info(cache, gh, match.group("pr"))
-            commit_info = {'hash': match.group("hash"), 'title': match.group("title"), 'pr_num': int(match.group("pr")), 'pr_labels': [label.name for label in pr_info.labels.items]}
+            commit_info = {'hash': match.group("hash"), 'title': pr_info['title'], 'pr_num': int(match.group("pr")), 'pr_labels': [label.name for label in pr_info.labels.items]}
             _categorise_commit(commit_info)
 
     def _dump_commit_list(name, collection):
