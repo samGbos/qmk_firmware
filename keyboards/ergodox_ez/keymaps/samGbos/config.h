@@ -4,7 +4,3 @@
 
 #undef TAPPING_TERM
 #define TAPPING_TERM 175
-
-#define LEADER_TIMEOUT 200
-#define LEADER_PER_KEY_TIMING
-
